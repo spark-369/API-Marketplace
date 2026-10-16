@@ -1,0 +1,95 @@
+# API Marketplace — one-command local stack.
+#
+#   docker compose up --build
+#
+# Brings up Postgres, Redis, the Spring Boot API and the nginx-served SPA. The SPA calls
+# /api/* on its own origin, which nginx proxies to the backend, so no CORS configuration
+# is involved in this topology.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: api_marketplace
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-mysecretpassword}
+    ports:
+      # Exposed so a developer can attach a SQL client; not needed by the app itself.
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # The backend must not start against a Postgres that is still initialising.
+      test: ["CMD-SHELL", "pg_isready -U postgres -d api_marketplace"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command:
+      # Cache + rate-limit counters + JobRunr storage all share this instance locally.
+      # An eviction policy of allkeys-lru would silently drop rate-limit counters, so
+      # memory is bounded instead and writes fail loudly if the limit is reached.
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - "256mb"
+      - --maxmemory-policy
+      - "noeviction"
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/api_marketplace
+      DB_USERNAME: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-mysecretpassword}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      # Minimum 32 bytes for HS256; override in every real environment.
+      JWT_SECRET: ${JWT_SECRET:-local-development-secret-change-me-please-32ch}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+      JOBRUNR_DASHBOARD_ENABLED: "true"
+      RATE_LIMIT_FAIL_OPEN: "true"
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+    ports:
+      - "8080:8080"
+      # JobRunr dashboard lives on its own port so it can be firewalled separately.
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      # Served by nginx on 8080 inside the container, mapped to 5173 so the URL matches
+      # the Vite dev server developers are used to.
+      - "5173:8080"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  pgdata: {}
+  redisdata: {}
