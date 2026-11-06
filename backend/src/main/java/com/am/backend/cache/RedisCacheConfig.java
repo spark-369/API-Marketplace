@@ -29,7 +29,7 @@ import java.util.Map;
 /**
  * Redis-backed Spring Cache configuration.
  *
- * <p>Values are serialised as JSON under the versioned {@code am:cache:v2:} prefix. Because the cached
+ * <p>Values are serialised as JSON under the versioned {@code am:cache:v3:} prefix. Because the cached
  * DTOs are Java records (not entities) there is no proxy/lazy-loading hazard. Cache access is treated
  * as non-fatal: {@link #cacheErrorHandler()} evicts an unreadable entry and falls through to the
  * database rather than failing the request.</p>
@@ -50,7 +50,7 @@ public class RedisCacheConfig implements CachingConfigurer {
      *
      * <p>Old keys are left to expire on their own TTL, which is at most 5 minutes here.</p>
      */
-    private static final String KEY_PREFIX = "am:cache:v2:";
+    private static final String KEY_PREFIX = "am:cache:v3:";
 
     /**
      * Cache manager for all marketplace caches.
@@ -185,15 +185,28 @@ public class RedisCacheConfig implements CachingConfigurer {
      * com.am.backend.dto.PageResponse} on every cache <em>hit</em> (the first, cache-missing request
      * succeeds, which is what makes the failure look intermittent).</p>
      *
+     * <p><strong>{@link ObjectMapper.DefaultTyping#EVERYTHING}, not {@code NON_FINAL}.</strong> Every
+     * value these caches hold is a Java record ({@code com.am.backend.dto.PageResponse},
+     * {@code com.am.backend.dto.ApiResponse}, and the other read models), and records are implicitly
+     * {@code final}. {@code NON_FINAL} writes no
+     * {@code @class} marker for final types, so the payload that reaches Redis is bare JSON — for the
+     * top-level object <em>and</em> for the elements of any collection it contains. The read side,
+     * however, resolves against {@link Object} and requires the marker, so a cache hit fails with:
+     * {@code InvalidTypeIdException: Could not resolve subtype of [simple type, class java.lang.Object]:
+     * missing type id property '@class'}. {@code EVERYTHING} stamps the marker on final types too
+     * (records, enums, {@link java.math.BigDecimal}, {@link java.util.UUID}), which makes the round
+     * trip lossless. The allow-list in {@link #cacheTypeValidator()} still decides what may be
+     * materialised, so widening the marker scope does not widen what may be instantiated.</p>
+     *
      * <p>{@link JavaTimeModule} is registered because the DTOs carry {@code LocalDateTime} fields, and
-     * {@code java.util} is included in the validator because {@link PageResponse#content()} is a
+     * {@code java.util} is included in the validator because {@code PageResponse.content()} is a
      * {@code List} whose element type must be recoverable from the stored JSON.</p>
      */
     private ObjectMapper cacheObjectMapper() {
         ObjectMapper mapper = new ObjectMapper();
         mapper.registerModule(new JavaTimeModule());
         mapper.setVisibility(PropertyAccessor.ALL, JsonAutoDetect.Visibility.ANY);
-        mapper.activateDefaultTyping(cacheTypeValidator(), ObjectMapper.DefaultTyping.NON_FINAL, JsonTypeInfo.As.PROPERTY);
+        mapper.activateDefaultTyping(cacheTypeValidator(), ObjectMapper.DefaultTyping.EVERYTHING, JsonTypeInfo.As.PROPERTY);
         return mapper;
     }
 
@@ -202,7 +215,12 @@ public class RedisCacheConfig implements CachingConfigurer {
      *
      * <p>Default typing makes the serialised class name authoritative, so an attacker able to write to
      * Redis could otherwise name an arbitrary type and drive deserialisation gadgets. The allow-list
-     * covers only this application's own classes plus the JDK collection types the DTOs use.</p>
+     * covers only this application's own classes plus the JDK value types the DTOs use —
+     * {@code java.util} for collections and {@link java.util.UUID}, {@code java.time} for the
+     * {@code LocalDateTime} fields, {@code java.math} for {@link java.math.BigDecimal} prices/ratings,
+     * and {@code java.lang} for strings and boxed primitives. With
+     * {@link ObjectMapper.DefaultTyping#EVERYTHING} each of those is type-marked in the payload, so it
+     * must also be permitted here or the read fails with an {@code InvalidTypeIdException}.</p>
      */
     private PolymorphicTypeValidator cacheTypeValidator() {
         return BasicPolymorphicTypeValidator.builder()
@@ -210,6 +228,7 @@ public class RedisCacheConfig implements CachingConfigurer {
                 .allowIfSubType("java.util.")
                 .allowIfSubType("java.time.")
                 .allowIfSubType("java.lang.")
+                .allowIfSubType("java.math.")
                 .build();
     }
 }

@@ -587,7 +587,7 @@ For the full security design see `docs/System_Blueprint.md` §6.
 | `keyValidation` | `key:{sha256digest}:{apiId}` | 10s | revoke / rotate / delete / plan edit / subscription change / expiry sweep |
 | `usageStats` | `usage:{apiKeyId}` | 60s | subscription change / API delete |
 
-- Key prefix `am:cache:v2:` — the version segment is bumped whenever the serialised form changes.
+- Key prefix `am:cache:v3:` — the version segment is bumped whenever the serialised form changes.
 - Cache failures are **non-fatal**: the error handler logs and falls through to the database.
 
 > **Critical invariant:** the catalog cache is **principal-independent**. `id:{id}` / `slug:{slug}`

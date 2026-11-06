@@ -298,7 +298,7 @@ cache key (`id:{id}` / `slug:{slug}`) carries no principal dimension, so any cac
 is readable by everyone. Confirm with:
 
 ```bash
-redis-cli --scan --pattern 'am:cache:v2:apiCatalog:*'
+redis-cli --scan --pattern 'am:cache:v3:apiCatalog:*'
 ```
 
 and compare each entry's `status`/`visibility` against expectations. `redis-cli FLUSHDB` clears the

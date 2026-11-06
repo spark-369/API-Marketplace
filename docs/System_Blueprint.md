@@ -499,7 +499,7 @@ dereferenced inside transactions (`spring.jpa.open-in-view=false`).
 | `usageStats` | `usage:{apiKeyId}` | 60s | On subscription change / API delete |
 
 - JSON serialisation (`GenericJackson2JsonRedisSerializer` with default typing enabled), key prefix
-  `am:cache:v2:` — the version segment is bumped whenever the serialised form changes, so pre-existing
+  `am:cache:v3:` — the version segment is bumped whenever the serialised form changes, so pre-existing
   keys are ignored rather than read and found unreadable.
 - Cache failures are non-fatal (`CachingConfigurer.errorHandler()` logs and falls through to the DB).
 
@@ -758,7 +758,7 @@ Hourly key/subscription expiry sweeps; daily usage-log retention prune; on-deman
 
 | Purpose | Data structure | Key prefix |
 |---------|----------------|------------|
-| Cache | String (JSON) | `am:cache:v2:` |
+| Cache | String (JSON) | `am:cache:v3:` |
 | Rate limit | Counter (Lua) | `am:rl:` |
 | JobRunr storage | Hash/List/Set | `jobrunr:` |
 

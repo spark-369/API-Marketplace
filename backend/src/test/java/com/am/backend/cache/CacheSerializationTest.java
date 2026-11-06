@@ -31,6 +31,14 @@ import static org.assertj.core.api.Assertions.assertThat;
  * succeeds, and every subsequent cache <em>hit</em> throws
  * {@code ClassCastException: LinkedHashMap cannot be cast to PageResponse} because the payload
  * carried no type information.</p>
+ *
+ * <p><strong>Why {@code DefaultTyping.EVERYTHING}.</strong> The cached values are records, and records
+ * are implicitly {@code final}. {@code DefaultTyping.NON_FINAL} (the obvious choice) writes no
+ * {@code @class} marker for final types, so the payload is bare JSON while the read side resolves
+ * against {@code Object} and demands the marker — failing with
+ * {@code InvalidTypeIdException: ... missing type id property '@class'}. This mirrors
+ * {@code RedisCacheConfig.cacheObjectMapper()} exactly so the suite fails if that configuration
+ * regresses.</p>
  */
 class CacheSerializationTest {
 
@@ -86,7 +94,7 @@ class CacheSerializationTest {
         mapper.registerModule(new JavaTimeModule());
         mapper.setVisibility(PropertyAccessor.ALL, JsonAutoDetect.Visibility.ANY);
         mapper.activateDefaultTyping(cacheTypeValidator(),
-                ObjectMapper.DefaultTyping.NON_FINAL, JsonTypeInfo.As.PROPERTY);
+                ObjectMapper.DefaultTyping.EVERYTHING, JsonTypeInfo.As.PROPERTY);
         return mapper;
     }
 
@@ -96,6 +104,7 @@ class CacheSerializationTest {
                 .allowIfSubType("java.util.")
                 .allowIfSubType("java.time.")
                 .allowIfSubType("java.lang.")
+                .allowIfSubType("java.math.")
                 .build();
     }
 }
